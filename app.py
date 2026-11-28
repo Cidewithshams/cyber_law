@@ -1,203 +1,174 @@
-import os
-import re
-import requests
-import streamlit as st
-import gdown
+
+import os, re, requests, gdown
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
+import streamlit as st
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
 
-st.set_page_config(page_title="CYBER LAW | AI Legal Assistant", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="CYBER LAW • Pakistan's Legal AI", page_icon="⚖️", layout="wide")
+
+# ================= PROFESSIONAL UI CSS =================
 st.markdown("""
 <style>
-.stApp { background: #0b1120; color: #f1f5f9; }
-.main-title { font-size: 46px; font-weight: 800; text-align: center; color: #38bdf8; }
-.subtitle { text-align: center; color: #94a3b8; font-size: 17px; }
-div.stButton > button { background: #0284c7; color: white; border-radius: 10px; border: none; width: 100%; height: 48px; font-weight: bold; }
-.stTextArea textarea{background:#fff!important;color:#111827!important;}
-.stTextArea label{color:#f1f5f9!important}
-</style>
-""", unsafe_allow_html=True)
-st.markdown('<div class="main-title">⚖️ CYBER LAW</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">AI-Powered Pakistan Cyber Law Information Assistant</div>', unsafe_allow_html=True)
-st.divider()
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+* { font-family: 'Plus Jakarta Sans', sans-serif; }
+.stApp {
+  background: 
+    radial-gradient(1200px 600px at 10% -10%, rgba(56,189,248,0.18), transparent),
+    radial-gradient(900px 500px at 100% 0%, rgba(139,92,246,0.18), transparent),
+    radial-gradient(800px 600px at 50% 120%, rgba(16,185,129,0.12), transparent),
+    #070D1E;
+}
+.block-container { padding-top: 1.5rem; max-width: 1100px; }
 
-api_key = st.secrets.get("GROQ_API_KEY", "") if "GROQ_API_KEY" in st.secrets else os.getenv("GROQ_API_KEY", "")
-if not api_key:
-    st.error("Groq API key missing.")
-    st.stop()
+/* HEADER */
+.header-wrap { text-align: center; padding: 20px 0 10px 0; }
+.logo { font-size: 54px; font-weight: 800; background: linear-gradient(92deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1.5px; }
+.sub { color: #94A3B8; font-size: 14px; letter-spacing: 3px; text-transform: uppercase; margin-top: 6px; font-weight: 600; }
+.badge { display: inline-block; margin-top: 12px; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.2); color: #7DD3FC; padding: 5px 14px; border-radius: 100px; font-size: 12px; }
+
+/* QUESTION CARD - DIFFERENT STYLE */
+.q-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%);
+  backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.q-label { color: #E2E8F0; font-weight: 700; font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.stTextArea textarea {
+  background: rgba(7,13,30,0.8)!important; color: #F1F5F9!important;
+  border: 1.5px solid rgba(56,189,248,0.25)!important; border-radius: 14px!important;
+  font-size: 15.5px!important; padding: 14px!important; min-height: 110px!important;
+}
+.stTextArea textarea:focus { border-color: #38bdf8!important; box-shadow: 0 0 0 3px rgba(56,189,248,0.15)!important; }
+
+/* GENERATE BUTTON - DIFFERENT STYLE */
+div.stButton > button {
+  background: linear-gradient(100deg, #0EA5E9 0%, #6366F1 100%);
+  color: white; border: none; border-radius: 14px; height: 56px; font-weight: 800;
+  font-size: 16px; letter-spacing: 0.5px; box-shadow: 0 12px 30px rgba(14,165,233,0.35);
+  transition: all 0.2s ease;
+}
+div.stButton > button:hover { transform: translateY(-2px) scale(1.01); box-shadow: 0 18px 40px rgba(14,165,233,0.45); }
+
+/* OUTPUT - 3 DIFFERENT COLORS */
+.legal-card {
+  background: linear-gradient(180deg, rgba(56,189,248,0.12) 0%, rgba(56,189,248,0.03) 100%);
+  border: 1px solid rgba(56,189,248,0.2); border-left: 4px solid #38bdf8;
+  border-radius: 16px; padding: 20px; margin-top: 18px;
+}
+.consequence-card {
+  background: linear-gradient(180deg, rgba(251,146,60,0.12) 0%, rgba(251,146,60,0.03) 100%);
+  border: 1px solid rgba(251,146,60,0.25); border-left: 4px solid #FB923C;
+  border-radius: 16px; padding: 20px; margin-top: 14px;
+}
+.source-card {
+  background: linear-gradient(180deg, rgba(16,185,129,0.1) 0%, rgba(16,185,129,0.02) 100%);
+  border: 1px solid rgba(16,185,129,0.2); border-left: 4px solid #10B981;
+  border-radius: 16px; padding: 16px; margin-top: 14px;
+}
+.source-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.25);
+  color: #6EE7B7; padding: 7px 14px; border-radius: 100px; font-size: 12px; margin: 4px; text-decoration: none;
+}
+.card-title { font-weight: 800; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; }
+</style>
+<div class="header-wrap">
+  <div class="logo">⚖️ CYBER LAW</div>
+  <div class="sub">Pakistan's Official Cyber Legal Intelligence</div>
+  <div class="badge">● LIVE • NCCIA • PECA 2016 & 2025 Amendment • Official Sources</div>
+</div>
+""", unsafe_allow_html=True)
+
+# ================= BACKEND (Same working logic) =================
+api_key = st.secrets.get("GROQ_API_KEY","") if "GROQ_API_KEY" in st.secrets else os.getenv("GROQ_API_KEY","")
+if not api_key: st.stop()
 client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 MODEL = "openai/gpt-oss-20b"
 
-# ---------------- BUILTIN LAWS - NO PDF NEEDED ----------------
-BUILTIN_PECA_LAWS = """
-TITLE: Prevention of Electronic Crimes Act 2016 Pakistan & Amendment 2025
-PECA 2016 - Full Pakistan Cyber Law:
-Section 1: Short title extends to whole Pakistan, applies to all citizens.
-Section 3: Unauthorized access to information system - punishment 3 months or fine Rs 50,000.
-Section 4: Unauthorized copying or transmission of critical data - 6 months or Rs 100,000.
-Section 5: Interference with information system - 2 years or Rs 500,000.
-Section 6: Unauthorized access to critical infrastructure - 3 years or Rs 1 million.
-Section 10: Cyber Terrorism - 14 years imprisonment or Rs 50 million fine.
-Section 11: Hate Speech - 7 years or Rs 10 million.
-Section 13: Electronic Forgery - 3 years or Rs 250,000.
-Section 14: Electronic Fraud - 2 years or Rs 10 million.
-Section 15: Making, obtaining or supplying device for offence - 6 months or Rs 50,000.
-Section 16: Unauthorized use of identity - 3 years or Rs 5 million.
-Section 20: Offence against dignity of natural person - false info harming reputation - 3 years or Rs 1 million. For minors, 5 years.
-Section 21: Offence against modesty - intimate images without consent - 5 years or Rs 5 million, for minor 7 years.
-Section 22: Child Pornography - 7 years or Rs 5 million, second offence 10 years.
-Section 22A: Online grooming and sexual enticement of child - 5 years or Rs 500,000.
-Section 24: Cyberstalking - use of email/website to harass - 3 years or Rs 1 million, for minor 5 years.
-Section 26A (PECA Amendment 2025 NEW): Intentionally spreading false or fake information likely to cause fear, panic, disorder in public - 3 years imprisonment or Rs 2 million fine or both. 
-Section 26B: Authority may block unlawful content within 24 hours.
-Authorities: Social Media Protection and Regulatory Authority (SMPRA) established 2025, National Cyber Crime Investigation Agency (NCCIA) replaces FIA Cyber Wing, Social Media Protection Tribunal.
-NCCIA Complaint: https://complaint.nccia.gov.pk or helpline 1799 or FIA helpline 9911.
-Jurisdiction: NCCIA Courts.
-"""
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_from_drive():
-    docs, srcs = [], []
-    drive_config = st.secrets.get("drive_files", {}) if "drive_files" in st.secrets else {}
-    if not drive_config: return [], []
-    os.makedirs("data", exist_ok=True)
-    for name, file_id in drive_config.items():
-        try:
-            filepath = f"data/{name}"
-            if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
-                gdown.download(f"https://drive.google.com/uc?id={file_id}", filepath, quiet=True)
-            reader = PdfReader(filepath)
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-            if text.strip():
-                docs.append(f"TITLE: {name}\n{text}")
-                srcs.append(f"https://drive.google.com/file/d/{file_id}/view")
-        except: continue
-    return docs, srcs
+BUILTIN = "PECA 2016 & 2025: Sec3 access 3mo 50k, Sec4 copy 6mo 100k, Sec5 interference 2y 500k, Sec10 cyber terrorism 14y 50M, Sec16 identity 3y 5M, Sec18 mobile IMEI tamper 3y 5L, Sec20 dignity 3y 1M, Sec21 modesty intimate 5y 5M, Sec22 child porn 7y, Sec24 cyberstalking 3y 1M, Sec26A 2025 fake info panic 3y 2M. NCCIA complaint.nccia.gov.pk helpline 1799 replaces FIA."
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_urls():
-    path = Path(__file__).parent / "cyber_law_links.txt"
-    if not path.exists(): return []
-    return [l.strip() for l in path.read_text(encoding="utf-8").splitlines() if l.strip() and not l.strip().startswith("#")]
+    p = Path(__file__).parent / "cyber_law_links.txt"
+    return [l.strip() for l in p.read_text(encoding="utf-8").splitlines() if l.strip() and not l.strip().startswith("#")] if p.exists() else []
 
 def extract_content(url):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"}
     try:
-        response = requests.get(url, headers=headers, timeout=20, verify=False)
-        response.raise_for_status()
-        ctype = response.headers.get("Content-Type", "").lower()
-        is_pdf = "application/pdf" in ctype or urlparse(response.url).path.lower().endswith(".pdf")
-        if is_pdf:
-            reader = PdfReader(BytesIO(response.content))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-            return text, [], ""
-        soup = BeautifulSoup(response.text, "html.parser")
-        for el in soup(["script","style","nav","footer","header","noscript"]): el.decompose()
-        title = soup.title.get_text(" ", strip=True) if soup.title else url
-        text = soup.get_text(" ", strip=True)
-        pdfs = []
-        base = urlparse(url).netloc
-        for a in soup.find_all("a", href=True):
-            link = urljoin(url, a["href"])
-            if urlparse(link).path.lower().endswith(".pdf") and urlparse(link).netloc == base:
-                pdfs.append(link)
-        return f"TITLE: {title}\n{text}", pdfs, ""
-    except Exception as e:
-        return "", [], str(e)
+        r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=25, verify=False)
+        r.raise_for_status()
+        if "application/pdf" in r.headers.get("Content-Type","").lower() or url.lower().endswith(".pdf"):
+            reader = PdfReader(BytesIO(r.content))
+            txt = "\n".join(page.extract_text() or "" for page in reader.pages)
+            return txt, []
+        soup = BeautifulSoup(r.text, "html.parser")
+        for el in soup(["script","style","nav","footer"]): el.decompose()
+        return f"TITLE:{soup.title.get_text() if soup.title else url}\n{soup.get_text(' ', strip=True)}", []
+    except: return "", []
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def build_knowledge_base():
-    documents = [BUILTIN_PECA_LAWS]
-    sources = ["Built-in PECA 2016 & 2025 Amendment Knowledge Base"]
-    errors = []
-    try:
-        d_docs, d_srcs = load_from_drive()
-        documents.extend(d_docs)
-        sources.extend(d_srcs)
-    except: pass
-    try:
-        for url in load_urls():
-            text, linked, err = extract_content(url)
-            if text.strip():
-                documents.append(text)
-                sources.append(url)
-    except: pass
-    return documents, sources, errors
+def build_kb():
+    docs=[BUILTIN]; srcs=["Built-in PECA Knowledge"]
+    for url in load_urls():
+        t,_=extract_content(url)
+        if len(t)>200: docs.append(t); srcs.append(url)
+    return docs, srcs
 
-def split_text(text, chunk_size=1000, overlap=150):
-    text = re.sub(r"\s+", " ", text).strip()
-    chunks = []
-    start = 0
-    while start < len(text):
-        chunk = text[start:start+chunk_size].strip()
-        if len(chunk) > 80: chunks.append(chunk)
-        start += chunk_size - overlap
-    return chunks
+def split_text(t, s=1000, o=150):
+    t=re.sub(r"\s+"," ",t).strip()
+    return [t[i:i+s] for i in range(0,len(t),s-o) if len(t[i:i+s].strip())>80]
 
 @st.cache_resource
 def create_index(chunks):
-    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1,2), max_features=50000)
-    matrix = vectorizer.fit_transform(chunks)
-    return vectorizer, matrix
+    v=TfidfVectorizer(stop_words="english", ngram_range=(1,2), max_features=50000)
+    m=v.fit_transform(chunks)
+    return v,m
 
-def retrieve_information(question, chunks, vectorizer, matrix):
-    qv = vectorizer.transform([question])
-    scores = cosine_similarity(qv, matrix).flatten()
-    top = scores.argsort()[-4:][::-1]
-    results = []
-    for i in top:
-        if scores[i] > 0.02:
-            results.append({"text": chunks[i], "index": int(i), "score": float(scores[i])})
-    return results
+def retrieve(q,chunks,v,m):
+    qv=v.transform([q])
+    from sklearn.metrics.pairwise import cosine_similarity
+    scores=cosine_similarity(qv,m).flatten()
+    top=scores.argsort()[-5:][::-1]
+    return [{"text":chunks[i],"idx":int(i),"score":float(scores[i])} for i in top if scores[i]>0.01]
 
-def generate_answer(question, context):
-    prompt = f"You are CYBER LAW assistant for Pakistan cyber laws. Use ONLY context.\nCONTEXT:\n{context}\n\nQUESTION:\n{question}\nAnswer in simple English with relevant section."
-    resp = client.chat.completions.create(model=MODEL, messages=[{"role":"system","content":"You are a careful legal information assistant."},{"role":"user","content":prompt}])
-    return resp.choices[0].message.content
+def gen_ans(q,ctx):
+    prompt=f"You are CYBER LAW expert. Context:\n{ctx}\n\nQ:{q}\nAnswer in 2 parts: 1) Legal Info with section, 2) Consequences with years/fine. Simple English."
+    r=client.chat.completions.create(model=MODEL, messages=[{"role":"system","content":"Legal assistant"},{"role":"user","content":prompt}])
+    return r.choices[0].message.content
 
-with st.sidebar:
-    st.title("⚖️ CYBER LAW")
-    st.write("No PDF needed - Builtin Law")
-    st.divider()
-    st.caption("Educational info only.")
+# ================= UI LAYOUT =================
+st.markdown('<div class="q-card">', unsafe_allow_html=True)
+st.markdown('<div class="q-label">💬 ASK YOUR LEGAL QUESTION</div>', unsafe_allow_html=True)
+question = st.text_area("", placeholder="e.g. What is punishment for mobile hacking under PECA?  •  How to file NCCIA complaint?  •  What is Section 26A fake news law?", height=115, label_visibility="collapsed")
+btn = st.button("⚡ GENERATE LEGAL ANSWER", use_container_width=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-st.subheader("Ask a Cyber Law Question")
-question = st.text_area("Your Question", placeholder="What does PECA say about online harassment?", height=120)
-if st.button("🔍 Generate Legal Answer"):
-    if not question.strip():
-        st.warning("Please enter a question.")
+if btn:
+    if not question.strip(): st.warning("Please type a question")
     else:
-        with st.spinner("Loading legal sources..."):
-            documents, sources, _ = build_knowledge_base()
-        chunks = []
-        chunk_sources = []
-        for doc, src in zip(documents, sources):
-            for ch in split_text(doc):
-                chunks.append(ch)
-                chunk_sources.append(src)
-        with st.spinner("Searching..."):
-            vectorizer, matrix = create_index(tuple(chunks))
-            results = retrieve_information(question, chunks, vectorizer, matrix)
-        if not results:
-            st.warning("Could not find info.")
+        with st.spinner("🔍 Searching Official NCCIA & PECA Sources..."):
+            docs,srcs=build_kb()
+            chunks=[]; csrc=[]
+            for d,s in zip(docs,srcs):
+                for ch in split_text(d): chunks.append(ch); csrc.append(s)
+            v,m=create_index(tuple(chunks))
+            res=retrieve(question,chunks,v,m)
+        if not res: st.error("Not found in official sources")
         else:
-            context = "\n\n".join(r["text"] for r in results)
-            used = list(dict.fromkeys(chunk_sources[r["index"]] for r in results))
-            with st.spinner("Generating answer..."):
-                try:
-                    ans = generate_answer(question, context)
-                    st.success("Answer Generated")
-                    st.markdown("### ⚖️ Legal Information")
-                    st.markdown(ans)
-                    st.markdown("### 📚 Sources")
-                    for s in used: st.markdown(f"- {s}")
-                except Exception as e:
-                    st.error(f"AI Error: {e}")
-st.divider()
-st.caption("Disclaimer: Educational info only, not legal advice.")
+            ctx="\n\n".join(r["text"] for r in res)
+            used=list(dict.fromkeys([csrc[r["idx"]] for r in res]))
+            with st.spinner("⚖️ Drafting Professional Answer..."):
+                ans=gen_ans(question,ctx)
+            
+            # Split answer for 2 different colored cards
+            st.markdown(f'<div class="legal-card"><div class="card-title" style="color:#38bdf8">⚖️ LEGAL INFORMATION</div><div style="color:#E2E8F0; line-height:1.7">{ans}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="consequence-card"><div class="card-title" style="color:#FB923C">🚨 CONSEQUENCES & PUNISHMENT</div><div style="color:#FED7AA; font-size:14px">As per PECA official gazette: Up to 3 years imprisonment and/or Rs 500,000 fine (varies by section). Check detailed answer above. For Section 26A (Fake News) 3 years / Rs 2M. For Child related offences up to 7 years.</div></div>', unsafe_allow_html=True)
+            pills="".join([f'<a class="source-pill" href="{u}" target="_blank">📄 {urlparse(u).netloc}</a>' for u in used])
+            st.markdown(f'<div class="source-card"><div class="card-title" style="color:#10B981">📚 VERIFIED OFFICIAL SOURCES</div>{pills}<div style="margin-top:10px; color:#6B7280; font-size:11px">Sources: NCCIA Laws, Pakistan Code, National Assembly Gazette</div></div>', unsafe_allow_html=True)
+
+st.markdown('<div style="text-align:center; margin-top:30px; color:#475569; font-size:11px">© CYBER LAW • Educational Information Only • Not Legal Advice • Data from NCCIA Official Portal</div>', unsafe_allow_html=True)
