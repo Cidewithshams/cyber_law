@@ -1,7 +1,7 @@
 streamlit
-openai
 requests
 beautifulsoup4
 pypdf
 scikit-learn
-certifi>=2025.1.31
+openai
+gdown
